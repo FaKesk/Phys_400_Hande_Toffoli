@@ -1,0 +1,464 @@
+from __future__ import print_function
+from molml.features import CoulombMatrix
+from molml.features import LocalCoulombMatrix
+from molml.kernel import AtomKernel
+from molml.utils import LazyValues
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from sklearn import datasets
+from sklearn import linear_model
+from sklearn.linear_model import Ridge
+from sklearn import metrics
+from sklearn import model_selection
+from sklearn import preprocessing
+from sklearn import svm
+import periodictable as pt # to get atomic numbers from symbols
+import molml
+import warnings
+import random
+import os
+
+folder_path = "/home/codespace/Phys_400_Hande_Toffoli/dsgdb9nsd.xyz"
+file_names = os.listdir(folder_path)
+data_set = random.choices(file_names, k=1500)
+
+homo_lumo_gap = []
+input_vectors = []
+new_input_vectors = []
+for file in data_set:
+    file_name = os.path.join(folder_path, file)
+    with open(file_name, "r") as f:
+        lines = f.readlines()
+        homo_lumo_gap.append(float(lines[1].split()[9])) #homo-lumo gap
+
+        atoms=[]
+        for line in lines[2:len(lines) - 3]:
+            atoms.append(line.split()[:4])
+            labels=[]
+        for atom in atoms:
+            labels.append(atom[0])
+        for atom in atoms:
+            atom[0] = pt.elements.symbol(atom[0]).number
+        for atom in atoms:
+            atom[1:] = [float(value.replace('*^', 'e')) if '*^' in value else float(value) for value in atom[1:]]
+
+
+        M = len(atoms)
+        N = len(atoms)
+        manual_Coulomb = [[0] * N for _ in range(M)]
+        for i in range(len(atoms)):
+            for j in range(len(atoms)):
+                if atoms[i] != atoms[j]:
+                    manual_Coulomb[i][j] = (atoms[i][0]*atoms[j][0]) / np.linalg.norm(np.array(atoms[i]) - np.array(atoms[j]))
+                elif atoms[i] == atoms[j]:
+                    manual_Coulomb[i][j] = (0.5) * (atoms[i][0]**2.4)
+        #input_vectors.append(np.array(manual_Coulomb).flatten())
+
+        input_vectors.append(np.array(manual_Coulomb).flatten())
+        max_length = max([len(vector) for vector in input_vectors])
+        
+for input_vector in input_vectors:
+    padded_coulomb = np.zeros((max_length))
+    padded_coulomb[:len(input_vector)] = input_vector
+    new_input_vectors.append(padded_coulomb)
+
+
+#np.array(manual_Coulomb).flatten()
+
+for i in range(len(new_input_vectors)):
+    for i in range(len(homo_lumo_gap)):
+        list(new_input_vectors[i]).append(homo_lumo_gap[i])
+
+len(list(new_input_vectors[0]))
+
+
+# Define some base data
+H2_ELES = ['H', 'H']
+H2_NUMS = [1, 1]
+H2_COORDS = [
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+]
+H2_CONNS = {
+    0: {1: '1'},
+    1: {0: '1'},
+}
+
+HCN_ELES = ['H', 'C', 'N']
+HCN_NUMS = [1, 6, 7]
+HCN_COORDS = [
+    [-1.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+]
+HCN_CONNS = {
+    0: {1: '1'},
+    1: {0: '1', 2: '3'},
+    2: {1: '3'},
+}
+
+if __name__ == "__main__":
+    # Example of generating the Coulomb matrix with just elements and coords
+    # for a single example molecule.
+    feat = CoulombMatrix()
+    H2 = (H2_ELES, H2_COORDS)
+    feat.fit([H2])
+    print("Transformed H2")
+    print(feat.transform([H2]))
+    print()
+
+    # Example of generating the Coulomb matrix with just elements and coords
+    # for multiple molecules.
+    feat = CoulombMatrix()
+    HCN = (HCN_ELES, HCN_COORDS)
+    feat.fit([H2, HCN])
+    print("Transformed H2")
+    print(feat.transform([H2]))
+    print("H2 and HCN transformed")
+    print(feat.transform([H2, HCN]))
+    print()
+
+    # Example of generating the Coulomb matrix with elements, coords, and
+    # connections.
+    feat = CoulombMatrix()
+    H2_conn = (H2_ELES, H2_COORDS, H2_CONNS)
+    HCN_conn = (HCN_ELES, HCN_COORDS, HCN_CONNS)
+    print(feat.fit_transform([H2_conn, HCN_conn]))
+
+
+HCN_ELES = ['H', 'C', 'N']
+HCN_NUMS = [1, 6, 7]
+HCN_COORDS = [
+    [-1.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+]
+
+M = len(HCN_COORDS)
+N = len(HCN_COORDS)
+manual_Coulomb = [[0] * N for _ in range(M)]
+
+for i in range(len(HCN_COORDS)):
+    for j in range(len(HCN_COORDS)):
+        if HCN_COORDS[i] != HCN_COORDS[j]:
+            manual_Coulomb[i][j] = (HCN_NUMS[i]*HCN_NUMS[j]) / np.linalg.norm(np.array(HCN_COORDS[i]) - np.array(HCN_COORDS[j]))
+        elif HCN_COORDS[i] == HCN_COORDS[j]:
+            manual_Coulomb[i][j] = (0.5) * (HCN_NUMS[i]**2.4)
+
+np.array(manual_Coulomb).flatten()
+
+
+# Reading the files one-by-one
+molecules = []
+for file in data_set:
+    file_path = os.path.join(folder_path, file)
+    with open(file_path, 'r') as xyz_read:
+        lines = xyz_read.readlines()
+        molecule = []
+
+        for line in lines[2:len(lines) - 3]:
+            molecule.append([line.split()[0],line.split()[1], line.split()[2], line.split()[3]])
+            
+        molecules.append(molecule)
+
+# Finding the molecule with the maximum number of atoms
+for mol in molecules:
+    if len(mol) == max([len(mol) for mol in molecules]):
+        max_mol = len(mol)   
+
+atomic_labels = []
+
+# Extracting the atomic labels separately
+for molecule in molecules:
+    atomic_label = []
+    
+    for atom in molecule:
+        label = atom[0]
+        atom.remove(atom[0])                 # The atomic label is at index 3 in each atom_data row
+        atomic_label.append(label)
+        atom[0:] = [float(value.replace('*^', 'e')) if '*^' in value else float(value) for value in atom[0:]]
+    
+    atomic_labels.append(atomic_label)
+
+atomic_labels[0], molecules[0]
+
+len(molecules) == len(atomic_labels) 
+
+
+np.array(molecules[0]), np.transpose(atomic_labels[0])
+final_array=[]
+for i in range(len(molecules)):
+
+
+    final_array.append([list(np.transpose(atomic_labels[i])), list(np.array(molecules[i], dtype=float))])
+
+
+homo_lumo_gap = []
+for file in data_set:
+    file_path = os.path.join(folder_path, file)
+    with open(file_path, 'r') as xyz_read:
+        lines = xyz_read.readlines()
+        #homo_lumo_gap.append(float(lines[1].split()[3]) - float(lines[1].split()[2]))
+        homo_lumo_gap.append(float(lines[1].split()[9]))
+final_array[55]
+
+
+feat = CoulombMatrix()
+H2 = (['H', 'H'],
+      [[0.0, 0.0, 0.0],
+      [1.0, 0.0, 0.0]])
+
+
+feat.fit_transform([H2]).flatten()
+
+input_vectors=[]
+for final in final_array:
+      input_vectors.append(feat.fit_transform([final]).flatten())
+max_length = max([len(i) for i in input_vectors])
+new_input_vectors=[]
+for input_vector in input_vectors:
+    if len(final) < max_length:
+      extended_array = np.zeros(max_length, dtype=input_vector.dtype)
+      extended_array[:len(input_vector)] = input_vector
+      input_vector = extended_array
+      input_vector = input_vector.tolist()
+      if len(input_vector) == max_length:
+            new_input_vectors.append(input_vector)
+            continue
+      else:
+            exit
+
+
+ml_training_arr=[]
+for i in range(len(new_input_vectors)):
+    ml_training_arr.append(np.array(new_input_vectors[i] + [homo_lumo_gap[i]]))
+
+ml_training_arr
+
+def to_dataframe(target_set):
+    # Reading the files one-by-one
+    molecules = []
+    for file in target_set:
+        file_path = os.path.join(folder_path, file)
+        with open(file_path, 'r') as xyz_read:
+            lines = xyz_read.readlines()
+            molecule = []
+
+            for line in lines[2:len(lines) - 3]:
+                molecule.append([line.split()[0],line.split()[1], line.split()[2], line.split()[3]])
+                
+            molecules.append(molecule)
+
+    # Finding the molecule with the maximum number of atoms
+    for mol in molecules:
+        if len(mol) == max([len(mol) for mol in molecules]):
+            max_mol = len(mol)   
+
+    atomic_labels = []
+
+    # Extracting the atomic labels separately
+    for molecule in molecules:
+        atomic_label = []
+        
+        for atom in molecule:
+            label = atom[0]
+            atom.remove(atom[0])                 # The atomic label is at index 3 in each atom_data row
+            atomic_label.append(label)
+        
+        atomic_labels.append(atomic_label)
+
+    atomic_labels[0], molecules[0]
+
+    len(molecules) == len(atomic_labels) 
+
+
+    np.array(molecules[0]), np.transpose(atomic_labels[0])
+    final_array=[]
+    for i in range(len(molecules)):
+        for j in range(len(molecules[i])):
+
+            molecules[i][j] = [float(value.replace('*^', 'e')) if '*^' in value else float(value) for value in molecules[i][j]]
+        final_array.append([list(np.transpose(atomic_labels[i])), list(np.array(molecules[i], dtype=float))])
+
+
+    homo_lumo_gap = []
+    for file in target_set:
+        file_path = os.path.join(folder_path, file)
+        with open(file_path, 'r') as xyz_read:
+            lines = xyz_read.readlines()
+            #homo_lumo_gap.append(float(lines[1].split()[3]) - float(lines[1].split()[2]))
+            homo_lumo_gap.append(float(lines[1].split()[9]))
+
+    input_vectors=[]
+    for final in final_array:
+        input_vectors.append(feat.fit_transform([final]).flatten())
+    max_length = max([len(i) for i in input_vectors])
+    new_input_vectors=[]
+    for input_vector in input_vectors:
+        if len(final) < max_length:
+            extended_array = np.zeros(max_length, dtype=input_vector.dtype)
+            extended_array[:len(input_vector)] = input_vector
+            input_vector = extended_array
+            input_vector = input_vector.tolist()
+        if len(input_vector) == max_length:
+                new_input_vectors.append(input_vector)
+                continue
+        else:
+                exit
+
+    ml_train_or_test_arr=[]
+    for i in range(len(new_input_vectors)):
+        ml_train_or_test_arr.append(np.array(new_input_vectors[i] + [homo_lumo_gap[i]]))
+    df = pd.DataFrame(ml_train_or_test_arr)
+    return df
+
+
+dF = to_dataframe(data_set) 
+dF
+
+
+from matplotlib.figure import Figure
+from matplotlib.axis import Axis
+fig, axes = plt.subplots(nrows=3,ncols=2, figsize = (30,30))
+colnames = [col for col in dF.columns]
+random.seed(18)
+rand_colnames = random.choices(colnames, k=6)
+plt.suptitle('Target Column vs. Input Columns', size=20)
+axes[0][0].plot(dF[rand_colnames[0]], dF[729], 'b.', markersize=8)
+axes[0][1].plot(dF[rand_colnames[1]], dF[729], 'r.', markersize=8)
+axes[1][0].plot(dF[rand_colnames[2]], dF[729], 'k.', markersize=8)
+axes[1][1].plot(dF[rand_colnames[3]], dF[729], 'g.', markersize=8)
+axes[2][0].plot(dF[rand_colnames[4]], dF[729], 'y.', markersize=8)
+axes[2][1].plot(dF[rand_colnames[5]], dF[729], 'm.', markersize=8)
+#plt.tight_layout()
+
+
+dF.corr().iloc[729, :729] 
+absolute_corrs = np.array([abs(corr) for corr in dF.corr()[729].drop(729)])
+a = np.where(absolute_corrs > 0.3)[0]
+
+absolute_corrs[a]
+
+plt.plot(dF[a[0]], dF[729], 'b.', markersize=5)
+plt.plot(dF[a[1]], dF[729], 'r.', markersize=5)
+#plt.xlim([5,20]); #plt.ylim([-10,0])
+
+
+sns.heatmap(dF.corr())
+
+
+from sklearn.model_selection import KFold
+X_dataset = dF.iloc[:, :729].to_numpy()
+y_dataset = dF[729].to_numpy()
+
+# 5 fold cross validation
+kf = KFold(n_splits=10)
+kf.get_n_splits(X_dataset)
+
+#indices for each fold
+folds=[]
+train_indices=[] 
+test_indices=[]
+for i, (train_index, test_index) in enumerate(kf.split(X_dataset)):
+    train_indices.append(train_index)
+    test_indices.append(test_index)
+    print("{}:{}".format(i,test_index)) #test indices do not overlap
+                                        #each group is hold out once                
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.metrics import r2_score
+import math
+
+#scaler = preprocessing.StandardScaler()
+#X_scaled_train = scaler.fit(X_dataset[train_indices[1]]).transform(X_dataset[train_indices[1]])
+#X_scaled_test = scaler.fit(X_dataset[test_indices[1]]).transform(X_dataset[test_indices[1]])
+
+def mse_for_each_fold(X_dataset):
+    mse_results_train = []
+    mse_results_test = []
+    y_predicts_train = []; 
+    y_predicts_test = []; 
+    for i in range(10):  # for five folds
+        linear_fit = linear_model.LinearRegression()  # Create a new model object for each fold
+        linear_fit.fit(X_dataset[train_indices[i]], y_dataset[train_indices[i]])
+
+        y_predict_train = linear_fit.predict(X_dataset[train_indices[i]])
+
+        y_predicts_train.append(y_predict_train)
+
+        y_predict_test = linear_fit.predict(X_dataset[test_indices[i]])
+        #print("{}, {}".format(len(y_predict_test),type(y_predict_train))) # to check if test set lengths are same for each fold
+
+        y_predicts_test.append(y_predict_test)
+
+        rmse_train = mean_squared_error(y_dataset[train_indices[i]], y_predict_train)
+        rmse_test = mean_squared_error(y_dataset[test_indices[i]], y_predict_test)
+
+
+        #s_train.append(np.sqrt(np.square(y_predict_train - y_dataset[train_indices[i]]).sum() / (len(y_dataset[train_indices[i]]) - X_dataset[train_indices[i]].shape[1])))
+        #s_test.append(np.sqrt(np.square(y_predict_test - y_dataset[test_indices[i]]).sum() / (len(y_dataset[test_indices[i]]) - X_dataset[test_indices[i]].shape[1])))   
+
+        mse_results_train.append(rmse_train)
+        mse_results_test.append(rmse_test)
+
+        del linear_fit  # Delete the model object to free up memory
+
+
+
+    return mse_results_train, mse_results_test, y_predicts_train ,y_predicts_test
+
+
+np.mean(mse_for_each_fold(X_dataset)[0]), np.mean(mse_for_each_fold(X_dataset)[1])
+
+
+
+import matplotlib.pyplot as plt
+y_predicts_train = mse_for_each_fold(X_dataset)[2]
+y_predicts_test = mse_for_each_fold(X_dataset)[3]
+# Assuming you have defined train_indices and test_indices somewhere
+
+def plotter(y_predicts_train, y_predicts_test, y_dataset, train_indices, test_indices):
+    fig, axes = plt.subplots(nrows=10, ncols=2, figsize=(30, 30))
+    for i in range(10):
+        axes[i][0].plot(y_predicts_train[i], y_dataset[train_indices[i]], 'b.', markersize=5)
+
+
+        #mask = (y_predicts_test[i] > 0.10) & (y_predicts_test[i] < 0.35) # masking
+        #y_predicts_test[i] = y_predicts_test[i][mask] # removing outliers
+
+
+        axes[i][1].plot(y_predicts_test[i], y_dataset[test_indices[i]], 'r.', markersize=5)
+
+
+        axes[i][0].set_title('Training Set')
+        axes[i][1].set_title('Test Set')
+        axes[i][0].set_xlabel('Predicted Values')
+        axes[i][0].set_ylabel('Actual Values')
+        axes[i][1].set_xlabel('Predicted Values')
+        axes[i][1].set_ylabel('Actual Values')
+
+    return axes
+
+# Assuming you have defined X_dataset, y_dataset, train_indices, and test_indices before calling the function
+y_predicts_train = mse_for_each_fold(X_dataset)[2]
+y_predicts_test = mse_for_each_fold(X_dataset)[3]
+
+axes = plotter(y_predicts_train, y_predicts_test, y_dataset, train_indices, test_indices)
+plt.show()  # Show the plots
+
+
+
+def new_plotter(y_predicts_train,y_predicts_test ,train_indices, test_indices):
+    fig, axes = plt.subplots(nrows=10, ncols=2, figsize=(30, 30))
+    for i in range(10):
+        axes[i][0].plot(y_predicts_train[i], 'b.', markersize=5)
+        axes[i][1].plot(y_predicts_test[i], 'r.', markersize=5)
+        #axes[i][1].set_ylim([0.15, 0.35])
+
+
+    return axes
+
+new_plotter(y_predicts_train,y_predicts_test,train_indices,test_indices)
+
