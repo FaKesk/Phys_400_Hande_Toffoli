@@ -1,0 +1,48 @@
+homo_lumo_gap = []
+input_vectors = []
+new_input_vectors = []
+for file in data_set:
+    file_name = os.path.join(folder_path, file)
+    with open(file_name, "r") as f:
+        lines = f.readlines()
+        homo_lumo_gap.append(float(lines[1].split()[9])) #homo-lumo gap
+
+        atoms=[]
+        for line in lines[2:len(lines) - 3]:
+            atoms.append(line.split()[:4])
+            labels=[]
+        for atom in atoms:
+            labels.append(atom[0])
+        for atom in atoms:
+            atom[0] = pt.elements.symbol(atom[0]).number
+        for atom in atoms:
+            atom[1:] = [float(value.replace('*^', 'e')) if '*^' in value else float(value) for value in atom[1:]]
+
+
+        M = len(atoms)
+        N = len(atoms)
+        manual_Coulomb = [[0] * N for _ in range(M)]
+        for i in range(len(atoms)):
+            for j in range(len(atoms)):
+                if atoms[i] != atoms[j]:
+                    manual_Coulomb[i][j] = (atoms[i][0]*atoms[j][0]) / np.linalg.norm(np.array(atoms[i]) - np.array(atoms[j]))
+                elif atoms[i] == atoms[j]:
+                    manual_Coulomb[i][j] = (0.5) * (atoms[i][0]**2.4)
+        #input_vectors.append(np.array(manual_Coulomb).flatten())
+
+        input_vectors.append(np.array(manual_Coulomb).flatten())
+        max_length = max([len(vector) for vector in input_vectors])
+        
+for input_vector in input_vectors:
+    padded_coulomb = np.zeros((max_length))
+    padded_coulomb[:len(input_vector)] = input_vector
+    new_input_vectors.append(padded_coulomb)
+
+
+#np.array(manual_Coulomb).flatten()
+
+for i in range(len(new_input_vectors)):
+    for i in range(len(homo_lumo_gap)):
+        list(new_input_vectors[i]).append(homo_lumo_gap[i])
+
+len(list(new_input_vectors[0]))
